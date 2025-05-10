@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pagamento - Confeitaria Online</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <h2 class="text-center">Pagamento do Pedido</h2>
+        
+        <!-- Exibir detalhes do pedido -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Pedido #{{pedido.id}}</h5>
+                <p><strong>Nome do Cliente:</strong> {{pedido.clienteNome}}</p>
+                <p><strong>E-mail:</strong> {{pedido.clienteEmail}}</p>
+                <p><strong>Descrição Personalizada:</strong> {{pedido.descricaoPersonalizada}}</p>
+            </div>
+        </div>
+
+        <form action="/pagamento/{{pedido.id}}" method="post">
+            <!-- Aqui você pode integrar opções de pagamento -->
+            <button type="submit" class="btn btn-success btn-block">Confirmar Pagamento</button>
+        </form>
+        
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+</body>
+</html>

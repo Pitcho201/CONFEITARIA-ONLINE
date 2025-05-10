@@ -1,0 +1,1571 @@
+package com.confeitariaOnline.CO.config;
+
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
+import org.springframework.stereotype.Component;
+
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+
+@Component
+public class CustomAuthenticationFailureHandler implements AuthenticationFailureHandler {
+
+    @Override
+    public void onAuthenticationFailure(HttpServletRequest request, HttpServletResponse response,
+                                        AuthenticationException exception) throws IOException, ServletException {
+        
+        String errorMessage = "Usuário ou senha incorretos."; // Mensagem padrão
+
+        // Verifica se a exceção é sobre credenciais erradas (senha incorreta)
+        if (exception.getMessage().contains("Bad credentials")) {
+            errorMessage = "Usuário ou senha incorretos..";
+        } 
+        // Verifica se a exceção é sobre nome de usuário não encontrado
+        else if (exception.getMessage().contains("UsernameNotFoundException")) {
+            errorMessage = "Usuário não encontrado.";
+        }
+
+        // Redireciona com o parâmetro 'message' que irá conter a mensagem de erro
+        response.sendRedirect("/login?error=true&message=" + errorMessage);
+    }
+}
+package com.confeitariaOnline.CO.config;
+
+import com.confeitariaOnline.CO.service.UserService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+
+    @Autowired
+    private UserService userService;
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http
+            .csrf().disable()
+            .authorizeRequests()
+                .antMatchers("/", "/produtos", "/contatos", "/registro","/contatoConfirmacao").permitAll()
+                .antMatchers("/pagamento").authenticated()
+            .and()
+            .formLogin()
+                .loginPage("/login")
+                .failureHandler(customAuthenticationFailureHandler)
+                .permitAll()
+                .defaultSuccessUrl("/pedidos", true)
+            .and()
+            .logout()
+                .permitAll();
+    }
+
+    @Override
+    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+        auth.userDetailsService(userService).passwordEncoder(passwordEncoder());
+    }
+    @Autowired
+private CustomAuthenticationFailureHandler customAuthenticationFailureHandler;
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}
+package com.confeitariaOnline.CO.controller;
+
+import com.confeitariaOnline.CO.model.User;
+import com.confeitariaOnline.CO.service.UserService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+
+@Controller
+public class AuthController {
+
+    @Autowired
+    private UserService userService;
+
+    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+
+    @GetMapping("/login")
+    public String showLoginPage() {
+        return "login"; // Exibe a página de login
+    }
+
+    @PostMapping("/login")
+    public String login(@RequestParam String username, @RequestParam String password, Model model) {
+        User user = userService.buscarPorUsername(username);
+
+        if (user == null) {
+            model.addAttribute("error", "Usuário não encontrado.");
+            return "login";
+        }
+
+        if (!passwordEncoder.matches(password, user.getPassword())) {
+            model.addAttribute("error", "Senha incorreta.");
+            return "login";
+        }
+
+        if (!user.isEnabled()) {
+            model.addAttribute("error", "Conta desativada.");
+            return "login";
+        }
+
+        // Caso o login seja bem-sucedido
+        model.addAttribute("username", username);
+        return "redirect:/pedidos";
+    }
+}
+package com.confeitariaOnline.CO.controller;
+
+import com.confeitariaOnline.CO.model.Contato;
+import com.confeitariaOnline.CO.service.ContatoService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.*;
+import java.util.List;
+
+@Controller
+@RequestMapping("/contatos")
+public class ContatoController {
+
+    @Autowired
+    private ContatoService contatoService;
+
+    // Exibe a lista de contatos na página
+    @GetMapping
+    public String listarContatos(Model model) {
+        List<Contato> contatos = contatoService.listarTodos();
+        model.addAttribute("contatos", contatos);
+        return "contatos"; // Exibe os contatos na página
+    }
+
+    // Recebe os dados do formulário e salva no banco de dados
+    @PostMapping
+    public String adicionarContato(@RequestParam String nome,
+                                   @RequestParam String email,
+                                   @RequestParam String mensagem,
+                                   Model model) {
+        Contato contato = new Contato();
+        contato.setNome(nome);
+        contato.setEmail(email);
+        contato.setMensagem(mensagem);
+    
+        contatoService.salvar(contato); // Salva o contato no banco de dados
+
+        // Após salvar, redireciona para a página de confirmação
+        model.addAttribute("nome", nome); // Adiciona o nome à confirmação
+        return "contatoConfirmacao"; // Página de confirmação
+    }
+
+}
+package com.confeitariaOnline.CO.controller;
+
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.GetMapping;
+
+@Controller
+public class HomeController {
+
+    // Página inicial (index)
+    @GetMapping("/")
+    public String exibirPaginaInicial() {
+        return "index";  // Página de índice será exibida quando acessar http://localhost:8080/
+    }
+    
+}
+package com.confeitariaOnline.CO.controller;
+import com.confeitariaOnline.CO.model.Produto;
+import com.confeitariaOnline.CO.service.ProdutoService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.ui.Model;
+import org.springframework.validation.BindingResult;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+
+@Controller
+public class InserirProdutoController {
+    
+    @Autowired
+    private ProdutoService produtoService;
+
+    // Página de registro
+    @GetMapping("/inserirProduto")
+    public String exibirFormularioDeRegistro(Model model) {
+        model.addAttribute("produto", new Produto());
+        return "inserirProduto"; // Exibe o formulário de registro
+    }
+
+    // Processa o formulário de registro
+    @PostMapping("/inserir")
+    public String registrarCliente(Produto produto, BindingResult result, Model model) {
+        if (result.hasErrors()) {
+            model.addAttribute("error", "Erro no formulário de registro.");
+            return "inserir";
+        }
+
+        try {
+            produtoService.salvar(produto); // Salva o cliente e o usuário
+            model.addAttribute("success", "Registro concluído com sucesso! Faça login para continuar.");
+            return "redirect:/inserirProduto";
+        } catch (Exception e) {
+            model.addAttribute("error", "Erro ao registrar. Tente novamente.");
+            return "inserirProduto";
+        }
+    }
+
+}
+package com.confeitariaOnline.CO.controller;
+
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.GetMapping;
+
+@Controller
+public class LogoutController {
+
+    @GetMapping("/logout")
+    public String logout() {
+        // Lógica para logout manual
+        return "redirect:/login"; // Redireciona para a página de login
+    }
+}
+package com.confeitariaOnline.CO.controller;
+
+import com.confeitariaOnline.CO.model.Pedido;
+import com.confeitariaOnline.CO.service.PedidoService;
+import com.confeitariaOnline.CO.model.User;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.*;
+
+import javax.servlet.http.HttpSession;
+
+@Controller
+@RequestMapping("/pagamento")
+public class PagamentoController {
+
+    @Autowired
+    private PedidoService pedidoService;
+
+    @GetMapping("/{pedidoId}")
+    public String exibirPagamento(@PathVariable Long pedidoId, HttpSession session, Model model) {
+        User usuario = (User) session.getAttribute("user");
+
+        if (usuario == null) {
+            return "redirect:/login?redirect=/pagamento/" + pedidoId;
+        }
+
+        // Buscar o pedido baseado no ID
+        Pedido pedido = pedidoService.buscarPorId(pedidoId);
+        if (pedido == null) {
+            model.addAttribute("erro", "Pedido não encontrado.");
+            return "erro";
+        }
+
+        // Adicionar dados do pedido à página de pagamento
+        model.addAttribute("pedido", pedido);
+        return "pagamento";
+    }
+
+    @PostMapping("/{pedidoId}")
+    public String processarPagamento(@PathVariable Long pedidoId, HttpSession session, Model model) {
+        User usuario = (User) session.getAttribute("user");
+
+        if (usuario == null) {
+            return "redirect:/login?redirect=/pagamento/" + pedidoId;
+        }
+
+        // Lógica do pagamento (exemplo de simulação)
+        Pedido pedido = pedidoService.buscarPorId(pedidoId);
+        if (pedido == null) {
+            model.addAttribute("erro", "Pedido não encontrado.");
+            return "erro";
+        }
+
+        // Aqui você pode adicionar a lógica para processar o pagamento
+        // Exemplo: Confirmar pagamento e atualizar status do pedido
+
+        // Após pagamento, redirecionar para uma página de sucesso ou confirmação
+        model.addAttribute("mensagem", "Pagamento realizado com sucesso!");
+        return "redirect:/pedidos";
+    }
+}
+package com.confeitariaOnline.CO.controller;
+
+import com.confeitariaOnline.CO.model.Pedido;
+import com.confeitariaOnline.CO.model.Produto;
+import com.confeitariaOnline.CO.model.User;
+import com.confeitariaOnline.CO.service.PedidoService;
+import com.confeitariaOnline.CO.service.ProdutoService;
+import com.confeitariaOnline.CO.service.UserService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@Controller
+@RequestMapping("/pedidos")
+public class PedidoController {
+
+    @Autowired
+    private PedidoService pedidoService;
+
+    @Autowired
+    private ProdutoService produtoService;
+
+    @Autowired
+    private UserService userService;
+
+    /**
+     * Página para visualizar e realizar pedidos.
+     */
+    @GetMapping
+    public String mostrarPaginaPedidos(Model model) {
+        // Obtém o usuário autenticado
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String username = auth.getName();
+
+        // Verifica se o usuário está autenticado e busca seus dados
+        User usuario = userService.buscarPorUsername(username);
+        if (usuario == null || username.equals("anonymousUser")) {
+            return "redirect:/login?redirect=/pedidos"; // Redireciona para login caso o usuário não seja encontrado
+        }
+
+        // Carrega os produtos disponíveis
+        List<Produto> produtos = produtoService.listarTodos();
+        model.addAttribute("produtos", produtos);
+
+        // Adiciona informações do usuário à página
+        model.addAttribute("usuario", usuario);
+
+        return "pedidos"; // Renderiza a página de pedidos
+    }
+
+    /**
+     * Processa o pedido e redireciona para a página de pagamento.
+     */
+    @PostMapping
+    public String processarPedido(
+            @RequestParam(required = false) Long produtoId,
+            @RequestParam(required = false) String descricao) {
+
+        // Obtém o usuário autenticado
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String username = auth.getName();
+
+        // Busca os dados do usuário
+        User usuario = userService.buscarPorUsername(username);
+        if (usuario == null || username.equals("anonymousUser")) {
+            return "redirect:/login?redirect=/pedidos"; // Redireciona para login caso o usuário não esteja autenticado
+        }
+
+        // Cria um novo pedido
+        Pedido pedido = new Pedido();
+        pedido.setClienteNome(usuario.getUsername()); // Define o nome do cliente
+        pedido.setClienteEmail(usuario.getEmail());   // Define o e-mail do cliente
+
+        // Configura a descrição do pedido
+        if (produtoId != null) {
+            Produto produto = produtoService.buscarPorId(produtoId);
+            if (produto != null) {
+                pedido.setDescricaoPersonalizada("Produto: " + produto.getNome());
+            }
+        } else if (descricao != null && !descricao.isEmpty()) {
+            pedido.setDescricaoPersonalizada("Descrição personalizada: " + descricao);
+        }
+
+        // Salva o pedido no banco de dados
+        pedidoService.salvar(pedido);
+
+        // Redireciona para a página de pagamento
+        return "redirect:/pagamento";
+    }
+}
+package com.confeitariaOnline.CO.controller;
+
+import com.confeitariaOnline.CO.model.Produto;
+import com.confeitariaOnline.CO.service.ProdutoService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.GetMapping;
+
+import java.util.List;
+
+@Controller
+public class ProdutoController {
+
+    @Autowired
+    private ProdutoService produtoService;
+
+    @GetMapping("/produtos")
+    public String listarProdutos(Model model) {
+        List<Produto> produtos = produtoService.listarTodos();
+        model.addAttribute("produtos", produtos);
+        return "produtos";
+    }
+}
+package com.confeitariaOnline.CO.controller;
+
+import com.confeitariaOnline.CO.model.Cliente;
+import com.confeitariaOnline.CO.service.ClienteService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+
+@Controller
+public class RegistroController {
+
+    @Autowired
+    private ClienteService clienteService;
+
+    // Página de registro
+    @GetMapping("/registro")
+    public String exibirFormularioDeRegistro(Model model) {
+        model.addAttribute("cliente", new Cliente());
+        return "registro"; // Exibe o formulário de registro
+    }
+
+    // Processa o formulário de registro
+    @PostMapping("/registrar")
+    public String registrarCliente(Cliente cliente, BindingResult result, Model model) {
+        if (result.hasErrors()) {
+            model.addAttribute("error", "Erro no formulário de registro.");
+            return "registro";
+        }
+
+        if (!cliente.getSenha().equals(cliente.getConfirmarSenha())) {
+            model.addAttribute("error", "As senhas não coincidem.");
+            return "registro";
+        }
+
+        try {
+            clienteService.salvarCliente(cliente); // Salva o cliente e o usuário
+            model.addAttribute("success", "Registro concluído com sucesso! Faça login para continuar.");
+            return "redirect:/login";
+        } catch (Exception e) {
+            model.addAttribute("error", "Erro ao registrar. Tente novamente.");
+            return "registro";
+        }
+    }
+}
+package com.confeitariaOnline.CO.model;
+
+import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.Transient;
+
+@Entity
+public class Cliente {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String nome;
+
+    private String email;
+
+    private String senha;
+
+    @Transient // Indica que este campo não será persistido no banco de dados
+    private String confirmarSenha;
+
+    // Getters e Setters
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getNome() {
+        return nome;
+    }
+
+    public void setNome(String nome) {
+        this.nome = nome;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getSenha() {
+        return senha;
+    }
+
+    public void setSenha(String senha) {
+        this.senha = senha;
+    }
+
+    public String getConfirmarSenha() {
+        return confirmarSenha;
+    }
+
+    public void setConfirmarSenha(String confirmarSenha) {
+        this.confirmarSenha = confirmarSenha;
+    }
+}
+package com.confeitariaOnline.CO.model;
+
+import javax.persistence.*;
+
+@Entity
+public class Contato {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false)
+    private String nome;
+
+    @Column(nullable = false)
+    private String email;
+
+    @Column(nullable = false)
+    private String mensagem;
+
+    // Getters e Setters
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getNome() {
+        return nome;
+    }
+
+    public void setNome(String nome) {
+        this.nome = nome;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getMensagem() {
+        return mensagem;
+    }
+
+    public void setMensagem(String mensagem) {
+        this.mensagem = mensagem;
+    }
+}
+package com.confeitariaOnline.CO.model;
+
+import javax.persistence.*;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+@Entity
+public class Pagamento {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false)
+    private BigDecimal valor;
+
+    @Column(nullable = false)
+    private LocalDateTime dataHora;
+
+    @Column(nullable = false)
+    private String metodoPagamento; // Exemplo: "Cartão de Crédito", "Pix", etc.
+
+    @ManyToOne
+    @JoinColumn(name = "pedido_id", nullable = false)
+    private Pedido pedido;
+
+    @Column(nullable = false)
+    private String status; // Exemplo: "Pendente", "Pago", "Cancelado"
+
+    // Getters e Setters
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public BigDecimal getValor() {
+        return valor;
+    }
+
+    public void setValor(BigDecimal valor) {
+        this.valor = valor;
+    }
+
+    public LocalDateTime getDataHora() {
+        return dataHora;
+    }
+
+    public void setDataHora(LocalDateTime dataHora) {
+        this.dataHora = dataHora;
+    }
+
+    public String getMetodoPagamento() {
+        return metodoPagamento;
+    }
+
+    public void setMetodoPagamento(String metodoPagamento) {
+        this.metodoPagamento = metodoPagamento;
+    }
+
+    public Pedido getPedido() {
+        return pedido;
+    }
+
+    public void setPedido(Pedido pedido) {
+        this.pedido = pedido;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+}
+package com.confeitariaOnline.CO.model;
+
+import javax.persistence.*;
+
+@Entity
+public class Pedido {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String clienteNome;
+
+    private String clienteEmail;
+
+    @Column(length = 500)
+    private String descricaoPersonalizada;
+
+    // Getters e Setters
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getClienteNome() {
+        return clienteNome;
+    }
+
+    public void setClienteNome(String clienteNome) {
+        this.clienteNome = clienteNome;
+    }
+
+    public String getClienteEmail() {
+        return clienteEmail;
+    }
+
+    public void setClienteEmail(String clienteEmail) {
+        this.clienteEmail = clienteEmail;
+    }
+
+    public String getDescricaoPersonalizada() {
+        return descricaoPersonalizada;
+    }
+
+    public void setDescricaoPersonalizada(String descricaoPersonalizada) {
+        this.descricaoPersonalizada = descricaoPersonalizada;
+    }
+}
+package com.confeitariaOnline.CO.model;
+
+import javax.persistence.*;
+
+@Entity
+public class Produto {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false)
+    private String nome;
+
+    private String descricao;
+
+    @Column(nullable = false)
+    private Double preco;
+
+    private String imagem; // Caminho para o arquivo de imagem
+    public Produto() {
+    }
+
+    // Getters e Setters
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getNome() {
+        return nome;
+    }
+
+    public void setNome(String nome) {
+        this.nome = nome;
+    }
+
+    public String getDescricao() {
+        return descricao;
+    }
+
+    public void setDescricao(String descricao) {
+        this.descricao = descricao;
+    }
+
+    public Double getPreco() {
+        return preco;
+    }
+
+    public void setPreco(Double preco) {
+        this.preco = preco;
+    }
+
+    public String getImagem() {
+        return imagem;
+    }
+
+    public void setImagem(String imagem) {
+        this.imagem = imagem;
+    }
+}
+package com.confeitariaOnline.CO.model;
+
+import javax.persistence.*;
+
+@Entity
+public class User {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String username;
+    private String password;
+    private String email;
+    private boolean enabled;
+
+    // Getters e Setters
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+}
+package com.confeitariaOnline.CO.repository;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import com.confeitariaOnline.CO.model.Cliente;
+
+public interface ClienteRepository extends JpaRepository<Cliente, Long> {
+    Cliente findByNome (String nome);
+}
+package com.confeitariaOnline.CO.repository;
+
+import com.confeitariaOnline.CO.model.Contato;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface ContatoRepository extends JpaRepository<Contato, Long> {
+}
+package com.confeitariaOnline.CO.repository;
+
+import com.confeitariaOnline.CO.model.Pagamento;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface PagamentoRepository extends JpaRepository<Pagamento, Long> {
+}
+ package com.confeitariaOnline.CO.repository;
+
+import com.confeitariaOnline.CO.model.Pedido;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface PedidoRepository extends JpaRepository<Pedido, Long> {
+}
+package com.confeitariaOnline.CO.repository;
+
+import com.confeitariaOnline.CO.model.Produto;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface ProdutoRepository extends JpaRepository<Produto, Long> {
+}
+package com.confeitariaOnline.CO.repository;
+
+import com.confeitariaOnline.CO.model.User;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface UserRepository extends JpaRepository<User, Long> {
+    User findByUsername(String username);  // Método para buscar usuário pelo nome de usuário
+}
+package com.confeitariaOnline.CO.service;
+
+import com.confeitariaOnline.CO.model.Cliente;
+import com.confeitariaOnline.CO.model.User;
+import com.confeitariaOnline.CO.repository.ClienteRepository;
+import com.confeitariaOnline.CO.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+@Service
+public class ClienteService {
+
+    @Autowired
+    private ClienteRepository clienteRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder; // Injeta PasswordEncoder
+
+    public void salvarCliente(Cliente cliente) {
+        // Codifica a senha usando PasswordEncoder
+        String senhaCodificada = passwordEncoder.encode(cliente.getSenha());
+
+        // Define a senha codificada para o Cliente
+        cliente.setSenha(senhaCodificada);
+        clienteRepository.save(cliente);
+
+        // Cria o objeto User a partir dos dados do Cliente
+        User user = new User();
+        user.setUsername(cliente.getNome());
+        user.setPassword(senhaCodificada); // Define a senha codificada
+        user.setEmail(cliente.getEmail());
+        user.setEnabled(true);
+
+        // Salva o usuário na tabela User
+        userRepository.save(user);
+    }
+}package com.confeitariaOnline.CO.service;
+
+import com.confeitariaOnline.CO.model.Contato;
+import com.confeitariaOnline.CO.repository.ContatoRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class ContatoService {
+
+    @Autowired
+    private ContatoRepository contatoRepository;
+
+    public List<Contato> listarTodos() {
+        return contatoRepository.findAll();
+    }
+
+    public Contato salvar(Contato contato) {
+        return contatoRepository.save(contato);
+    }
+
+    public void deletar(Long id) {
+        contatoRepository.deleteById(id);
+    }
+
+    public Contato buscarPorId(Long id) {
+        return contatoRepository.findById(id).orElse(null);
+    }
+}
+package com.confeitariaOnline.CO.service;
+
+import com.confeitariaOnline.CO.model.Pagamento;
+import com.confeitariaOnline.CO.repository.PagamentoRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service
+public class PagamentoService {
+
+    @Autowired
+    private PagamentoRepository pagamentoRepository;
+
+    public Pagamento salvarPagamento(Pagamento pagamento) {
+        return pagamentoRepository.save(pagamento);
+    }
+
+    public Pagamento buscarPagamentoPorId(Long id) {
+        return pagamentoRepository.findById(id).orElse(null);
+    }
+}
+package com.confeitariaOnline.CO.service;
+
+import com.confeitariaOnline.CO.model.Pedido;
+import com.confeitariaOnline.CO.repository.PedidoRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class PedidoService {
+
+    @Autowired
+    private PedidoRepository pedidoRepository;
+
+    public void salvar(Pedido pedido) {
+        pedidoRepository.save(pedido);
+    }
+
+    public Pedido buscarPorId(Long id) {
+        return pedidoRepository.findById(id).orElse(null);
+    }
+
+    public List<Pedido> listarTodos() {
+        return pedidoRepository.findAll();
+    }
+}
+package com.confeitariaOnline.CO.service;
+
+import com.confeitariaOnline.CO.model.Produto;
+import com.confeitariaOnline.CO.repository.ProdutoRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class ProdutoService {
+
+    @Autowired
+    private ProdutoRepository produtoRepository;
+
+    public List<Produto> listarTodos() {
+        return produtoRepository.findAll();
+    }
+
+    public Produto salvar(Produto produto) {
+        return produtoRepository.save(produto);
+    }
+
+    public void deletar(Long id) {
+        produtoRepository.deleteById(id);
+    }
+
+    public Produto buscarPorId(Long id) {
+        return produtoRepository.findById(id).orElse(null);
+    }
+}
+package com.confeitariaOnline.CO.service;
+import org.springframework.stereotype.Service;
+import com.confeitariaOnline.CO.model.Pedido;
+
+@Service
+public class ServicoPagamento {
+
+    public boolean processarPagamento(Pedido pedido) {
+        // Lógica simulada para pagamento
+        return true; // Simulação de sucesso
+    }
+}
+package com.confeitariaOnline.CO.service;
+
+import com.confeitariaOnline.CO.model.User;
+import com.confeitariaOnline.CO.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Service;
+
+@Service
+public class UserService implements UserDetailsService {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        // Buscar o usuário no banco de dados
+        User user = userRepository.findByUsername(username);
+
+        if (user == null) {
+            throw new UsernameNotFoundException("Usuário não encontrado!");
+        }
+
+        // Retornar os detalhes do usuário
+        return org.springframework.security.core.userdetails.User
+                .withUsername(user.getUsername())
+                .password(user.getPassword())  // A senha já está codificada
+                .roles("USER") // Aqui você pode personalizar as roles do usuário
+                .build();
+    }
+
+    // Método para buscar o usuário pelo nome de usuário
+    public User buscarPorUsername(String username) {
+        return userRepository.findByUsername(username);
+    }
+
+    // Método para salvar o usuário
+    public void salvarUsuario(User user) {
+        userRepository.save(user);
+    }
+}
+package com.confeitariaOnline.CO;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class ConfeitariaOnline2Application {
+
+	public static void main(String[] args) {
+		SpringApplication.run(ConfeitariaOnline2Application.class, args);
+	}
+
+}
+/* Global styles */
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f8f9fa;
+    color: #333;
+}
+
+header {
+    background-color: #343a40;
+    color: #fff;
+    padding: 10px 20px;
+    text-align: center;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 1.8rem;
+}
+
+nav {
+    background-color: #495057;
+    padding: 10px 0;
+    text-align: center;
+}
+
+nav a {
+    color: #fff;
+    text-decoration: none;
+    margin: 0 15px;
+    font-weight: bold;
+}
+
+nav a:hover {
+    color: #ffc107;
+}
+
+/* Page container */
+.container {
+    margin: 20px auto;
+    padding: 15px;
+    max-width: 800px;
+    background-color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* Buttons */
+button {
+    background-color: #343a40;
+    color: #fff;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 1rem;
+}
+
+button:hover {
+    background-color: #ffc107;
+}
+
+/* Forms */
+form {
+    display: flex;
+    flex-direction: column;
+}
+
+form input, form textarea, form select {
+    margin-bottom: 15px;
+    padding: 10px;
+    font-size: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+
+form label {
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+/* Footer */
+footer {
+    background-color: #343a40;
+    color: #fff;
+    text-align: center;
+    padding: 10px;
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+}
+img {
+    width: 100%;
+    max-width: 500px;
+    height: auto;
+}
+.error-message {
+    color: red;
+    text-align: center;
+    margin-top: 10px;
+}
+document.addEventListener("DOMContentLoaded", () => {
+    console.log("Sistema Confeitaria Online iniciado!");
+
+    // Função para alertar o usuário ao adicionar um produto ao pedido
+    const addButtons = document.querySelectorAll(".add-to-cart");
+    addButtons.forEach(button => {
+        button.addEventListener("click", () => {
+            alert("Produto adicionado ao pedido!");
+        });
+    });
+});
+// login.js
+
+// Função que verifica a URL para o parâmetro 'message'
+function showErrorMessage() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const errorMessage = urlParams.get('message');
+
+    if (errorMessage) {
+        const errorDiv = document.getElementById('error-message');
+        errorDiv.textContent = errorMessage; // Exibe a mensagem de erro
+    }
+}
+
+// Chama a função para exibir a mensagem de erro quando a página carregar
+window.onload = showErrorMessage;
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirmação de Contato - Confeitaria Online</title>
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container">
+        <header class="py-3">
+            <h1 class="text-center">Obrigado pelo seu contato!</h1>
+        </header>
+        <main class="mt-4">
+            <div class="alert alert-success" role="alert">
+                <p>Olá, <strong th:text="${nome}">Nome do Cliente</strong>!</p>
+                <p>Recebemos sua mensagem e entraremos em contato em breve.</p>
+            </div>
+            <div class="text-center">
+                <a href="/" class="btn btn-primary">Voltar para a página inicial</a>
+            </div>
+        </main>
+    </div>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contato</title>
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container">
+        <header class="py-3">
+            <h1 class="text-center">Fale Conosco</h1>
+            <nav class="nav justify-content-center">
+                <a class="nav-link" href="/">Início</a>
+                <a class="nav-link" href="/produtos">Produtos</a>
+                <a class="nav-link" href="/contatos">Contato</a>
+                <a class="nav-link" href="/login">Login</a>
+            </nav>
+        </header>
+        <main class="mt-4">
+            <form method="post" action="/contatos">
+                <input type="hidden" name="_csrf" value="${_csrf.token}">
+                <div class="form-group">
+                    <label for="nome">Nome</label>
+                    <input type="text" class="form-control" id="nome" name="nome" required>
+                </div>
+                <div class="form-group">
+                    <label for="email">E-mail</label>
+                    <input type="email" class="form-control" id="email" name="email" required>
+                </div>
+                <div class="form-group">
+                    <label for="mensagem">Mensagem</label>
+                    <textarea class="form-control" id="mensagem" name="mensagem" rows="4" required></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary mt-3">Enviar</button>
+            </form>
+        </main>
+    </div>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confeitaria Online</title>
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container">
+        <header class="py-3">
+            <h1 class="text-center">Bem-vindo à Confeitaria Doces e Salgados</h1>
+            <nav class="nav justify-content-center">
+                <a class="nav-link" href="/">Início</a>
+                <a class="nav-link" href="/produtos">Produtos</a>
+                <a class="nav-link" href="/contatos">Contato</a>
+                <a class="nav-link" href="/login">Login</a>
+            </nav>
+        </header>
+        <main class="mt-4">
+            <p class="text-center">Faça pedidos personalizados de bolos diretamente de sua casa!</p>
+        </main>
+    </div>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inserir Produto - Confeitaria Online</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <h2 class="text-center">Inserir Novo Produto</h2>
+        <form action="/inserir" method="post">
+            <div class="form-group">
+                <label for="nome">Nome do Produto</label>
+                <input type="text" class="form-control" id="nome" name="nome" placeholder="nome do produto" required>
+            </div>
+            <div class="form-group">
+                <label for="descricao">Descricao</label>
+                <input type="text" class="form-control" id="descricao" name="descricao" placeholder="descricao" required>
+            </div>
+            <div class="form-group">
+                <label for="preco">Preço</label>
+                <input type="number" class="form-control" id="preco" name="preco" placeholder="Preço" required>
+            </div>
+            <div class="form-group">
+                <label for="imagem">imagem</label>
+                <input type="imagem" class="form-control" id="imagem" name="imagem" placeholder="Nome da imagem e o tipo" required>
+            </div>
+           
+            <button type="submit" class="btn btn-primary btn-block">inserir</button>
+        </form>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Confeitaria Online</title>
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+   
+</head>
+<body>
+    <div class="container mt-5">
+        <h2 class="text-center">Login</h2>
+        <!-- Mensagem de erro -->
+        <div id="error-message" class="error-message"></div>
+        
+        <form action="/login" method="post">
+            <div class="form-group">
+                <label for="username">Nome de Usuário</label>
+                <input type="text" class="form-control" id="username" name="username" placeholder="Digite seu nome de usuário" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Senha</label>
+                <input type="password" class="form-control" id="password" name="password" placeholder="Digite sua senha" required>
+            </div>
+            <br>
+            <button type="submit" class="btn btn-primary btn-block">Entrar</button>
+        </form>
+        <br>
+        <p class="text-center">Ainda não tem uma conta? <a href="/registro">Registre-se aqui</a>.</p>
+    </div>
+
+    <!-- Lógica em JavaScript separada -->
+    <script src="/js/login.js"></script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pagamento - Confeitaria Online</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <h2 class="text-center">Pagamento do Pedido</h2>
+        
+        <!-- Exibir detalhes do pedido -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Pedido #{{pedido.id}}</h5>
+                <p><strong>Nome do Cliente:</strong> {{pedido.clienteNome}}</p>
+                <p><strong>E-mail:</strong> {{pedido.clienteEmail}}</p>
+                <p><strong>Descrição Personalizada:</strong> {{pedido.descricaoPersonalizada}}</p>
+            </div>
+        </div>
+
+        <form action="/pagamento/{{pedido.id}}" method="post">
+            <!-- Aqui você pode integrar opções de pagamento -->
+            <button type="submit" class="btn btn-success btn-block">Confirmar Pagamento</button>
+        </form>
+        
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pedido - Confeitaria Online</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <h2 class="text-center">Confirme seu Pedido</h2>
+        <p>Escolha um produto ou personalize seu pedido:</p>
+        
+        <!-- Selecione um Produto -->
+        <h4>Escolha um Produto</h4>
+        <form action="/pedidos" method="post">
+            <div class="form-group">
+                <label for="produto">Produtos Disponíveis</label>
+                <select class="form-control" id="produto" name="produtoId">
+                    <option value="">Selecione um produto</option>
+                    <!-- Iterar sobre os produtos e exibi-los como opções -->
+                    <th:block th:each="produto : ${produtos}">
+                        <option th:value="${produto.id}" th:text="${produto.nome}"></option>
+                    </th:block>
+                </select>
+            </div>
+
+            <!-- Personalização do Bolo -->
+            <div class="form-group">
+                <label for="descricao">Personalização do Bolo (Opcional)</label>
+                <textarea class="form-control" id="descricao" name="descricao" rows="3" placeholder="Descreva como deseja o bolo..."></textarea>
+            </div>
+
+            <button type="submit" class="btn btn-success btn-block">Efetuar Pedido</button>
+        </form>
+
+        <br>
+        <p class="text-center">Caso não tenha feito login, você será redirecionado para a página de login.</p>
+    </div>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Produtos</title>
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container">
+        <header class="py-3">
+            <h1 class="text-center">Nossos Produtos</h1>
+            <nav class="nav justify-content-center">
+                <a class="nav-link" href="/">Início</a>
+                <a class="nav-link" href="/produtos">Produtos</a>
+                <a class="nav-link" href="/contatos">Contato</a>
+                <a class="nav-link" href="/login">Login</a>
+            </nav>
+        </header>
+        <main class="mt-4">
+            <div class="row">
+                <!-- Produtos dinâmicos -->
+                <div class="col-md-4" th:each="produto : ${produtos}">
+                    <div class="card">
+                        <img class="card-img-top" th:src="@{'/images/' + ${produto.imagem}}" alt="Imagem do Produto">
+                        <div class="card-body">
+                            <h5 class="card-title" th:text="${produto.nome}">Nome do Produto</h5>
+                            <p class="card-text" th:text="${produto.descricao}">Descrição do Produto</p>
+                            <p class="card-text"><strong th:text="${produto.preco}">Preço</strong></p>
+                            <a href="/pedidos" class="btn btn-primary">Encomendar</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro - Confeitaria Online</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <h2 class="text-center">Registro de Novo Cliente</h2>
+        <form action="/registrar" method="post">
+            <div class="form-group">
+                <label for="nome">Nome Completo</label>
+                <input type="text" class="form-control" id="nomen" name="nome_completo" placeholder="Digite seu nome completo" required>
+            </div>
+            <div class="form-group">
+                <label for="username">Nome de Usuário</label>
+                <input type="text" class="form-control" id="nome" name="nome" placeholder="Escolha um nome de usuário" required>
+            </div>
+            <div class="form-group">
+                <label for="email">E-mail</label>
+                <input type="email" class="form-control" id="email" name="email" placeholder="Digite seu e-mail" required>
+            </div>
+            <div class="form-group">
+                <label for="senha">Senha</label>
+                <input type="password" class="form-control" id="senha" name="senha" placeholder="Digite sua senha" required>
+            </div>
+            <div class="form-group">
+                <label for="confirmarSenha">Confirmar Senha</label>
+                <input type="password" class="form-control" id="confirmarSenha" name="confirmarSenha" placeholder="Confirme sua senha" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Registrar</button>
+        </form>
+        <br>
+        <p class="text-center">Já tem uma conta? <a href="/login">Faça login aqui</a>.</p>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+package com.confeitariaOnline.CO;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class ConfeitariaOnline2Application {
+
+	public static void main(String[] args) {
+		SpringApplication.run(ConfeitariaOnline2Application.class, args);
+	}
+
+}

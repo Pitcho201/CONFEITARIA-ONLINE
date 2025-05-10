@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirmação de Contato - Confeitaria Online</title>
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container">
+        <header class="py-3">
+            <h1 class="text-center">Obrigado pelo seu contato!</h1>
+        </header>
+        <main class="mt-4">
+            <div class="alert alert-success" role="alert">
+                <p>Olá, <strong th:text="${nome}">Nome do Cliente</strong>!</p>
+                <p>Recebemos sua mensagem e entraremos em contato em breve.</p>
+            </div>
+            <div class="text-center">
+                <a href="/" class="btn btn-primary">Voltar para a página inicial</a>
+            </div>
+        </main>
+    </div>
+</body>
+</html>
